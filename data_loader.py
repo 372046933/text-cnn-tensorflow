@@ -6,6 +6,8 @@ import csv
 import os
 import random
 import re
+import sys
+from typing import Tuple
 
 import numpy as np
 from hbconfig import Config
@@ -80,7 +82,8 @@ def prepare_dataset(dataset=None, x_text=None, y=None):
     filenames = ['train_X', 'train_y', 'test_X', 'test_y']
     files = []
     for filename in filenames:
-        files.append(open(os.path.join(Config.data.base_path, Config.data.processed_path, filename), 'wb'))
+        files.append(
+            open(os.path.join(Config.data.base_path, Config.data.processed_path, filename), 'wb'))
 
     if dataset is not None:
 
@@ -148,6 +151,7 @@ def basic_tokenizer(line, normalize_digits=True):
 
 def build_vocab(train_fname, test_fname, normalize_digits=True):
     vocab = {}
+
     def count_vocab(fname):
         with open(fname, 'rb') as f:
             for line in f.readlines():
@@ -176,8 +180,9 @@ def build_vocab(train_fname, test_fname, normalize_digits=True):
 
 def load_vocab(vocab_fname):
     print("load vocab ...")
-    with open(os.path.join(Config.data.base_path, Config.data.processed_path, vocab_fname), 'rb') as f:
-        words = f.read().decode('utf-8').splitlines()
+    with open(os.path.join(Config.data.base_path, Config.data.processed_path, vocab_fname),
+              encoding='utf-8') as f:
+        words = f.read().splitlines()
     return {words[i]: i for i in range(len(words))}
 
 
@@ -215,8 +220,15 @@ def process_data():
 
 
 def make_train_and_test_set(shuffle=True):
+    '''
+    Returns
+    -------
+    t : tuple of ndarray
+        ((train_features, train_labels), (test_features, test_labels))
+    '''
     print("make Training data and Test data Start....")
 
+    #Manully set max_seq_length if it is unset in config
     if Config.data.get('max_seq_length', None) is None:
         set_max_seq_length(['train_X_ids', 'test_X_ids'])
 
@@ -234,16 +246,30 @@ def make_train_and_test_set(shuffle=True):
         train_p = np.random.permutation(len(train_y))
         test_p = np.random.permutation(len(test_y))
 
-        return ((train_X[train_p], train_y[train_p]),
-                (test_X[test_p], test_y[test_p]))
+        return ((train_X[train_p], train_y[train_p]), (test_X[test_p], test_y[test_p]))
     else:
-        return ((train_X, train_y),
-                (test_X, test_y))
+        return ((train_X, train_y), (test_X, test_y))
 
 
 def load_data(X_fname, y_fname):
-    X_input_data = open(os.path.join(Config.data.base_path, Config.data.processed_path, X_fname), 'r')
-    y_input_data = open(os.path.join(Config.data.base_path, Config.data.processed_path, y_fname), 'r')
+    '''
+    Read features and labels from file, with features padded and labels
+    one-hotted
+
+    Parameters
+    ----------
+    X_fname : feature's file name in config's base_path/processed_path
+    y_fname : label's file name in config's base_path/processed_path
+
+    Returns
+    -------
+    t: tuple of ndarray
+        (features, labels)
+    '''
+    X_input_data = open(os.path.join(Config.data.base_path, Config.data.processed_path, X_fname),
+                        'r')
+    y_input_data = open(os.path.join(Config.data.base_path, Config.data.processed_path, y_fname),
+                        'r')
 
     X_data, y_data = [], []
     for X_line, y_line in zip(X_input_data.readlines(), y_input_data.readlines()):
@@ -251,6 +277,7 @@ def load_data(X_fname, y_fname):
         y_id = int(y_line)
 
         if len(X_ids) == 0 or y_id >= Config.data.num_classes:
+            print(f'Corrupt data: X_line:{X_line}, y_line:{y_line}', file=sys.stderr)
             continue
 
         if len(X_ids) <= Config.data.max_seq_length:
@@ -265,6 +292,15 @@ def load_data(X_fname, y_fname):
 
 
 def _pad_input(input_, size):
+    '''
+    Pad input to specified size
+    
+    Parameters
+    ----------
+    input_ : ndarray
+    size : specified size
+    --
+    '''
     return input_ + [0] * (size - len(input_))
 
 
@@ -273,21 +309,21 @@ def set_max_seq_length(dataset_fnames):
     max_seq_length = Config.data.get('max_seq_length', 10)
 
     for fname in dataset_fnames:
-        input_data = open(os.path.join(Config.data.base_path, Config.data.processed_path, fname), 'r')
+        with open(os.path.join(Config.data.base_path, Config.data.processed_path,
+                               fname)) as input_data:
+            for line in input_data.readlines():
+                ids = [int(id_) for id_ in line.split()]
+                seq_length = len(ids)
 
-        for line in input_data.readlines():
-            ids = [int(id_) for id_ in line.split()]
-            seq_length = len(ids)
-
-            if seq_length > max_seq_length:
-                max_seq_length = seq_length
+                if seq_length > max_seq_length:
+                    max_seq_length = seq_length
 
     Config.data.max_seq_length = max_seq_length
     print(f"Setting max_seq_length to Config : {max_seq_length}")
 
 
-def make_batch(data, buffer_size=10000, batch_size=64, scope="train"):
-
+def make_batch(data: Tuple[np.ndarray, np.ndarray], buffer_size=10000, batch_size=64,
+               scope="train"):
     class IteratorInitializerHook(tf.train.SessionRunHook):
         """Hook to initialise data iterator after Session is created."""
 
@@ -299,7 +335,6 @@ def make_batch(data, buffer_size=10000, batch_size=64, scope="train"):
             """Initialise the iterator after the session has been created."""
             self.iterator_initializer_func(session)
 
-
     def get_inputs():
 
         iterator_initializer_hook = IteratorInitializerHook()
@@ -310,16 +345,14 @@ def make_batch(data, buffer_size=10000, batch_size=64, scope="train"):
                 X, y = data
 
                 # Define placeholders
-                input_placeholder = tf.placeholder(
-                    tf.int32, [None, Config.data.max_seq_length])
-                output_placeholder = tf.placeholder(
-                    tf.int32, [None, Config.data.num_classes])
+                input_placeholder = tf.placeholder(tf.int32, [None, Config.data.max_seq_length])
+                output_placeholder = tf.placeholder(tf.int32, [None, Config.data.num_classes])
 
                 # Build dataset iterator
                 dataset = tf.data.Dataset.from_tensor_slices(
                     (input_placeholder, output_placeholder))
 
-                if scope == "train":
+                if scope == tf.estimator.ModeKeys.TRAIN:
                     dataset = dataset.repeat(None)  # Infinite iterations
                 else:
                     dataset = dataset.repeat(1)  # 1 Epoch
@@ -347,12 +380,11 @@ def make_batch(data, buffer_size=10000, batch_size=64, scope="train"):
 
     return get_inputs()
 
+
 if __name__ == '__main__':
 
-    parser = argparse.ArgumentParser(
-                        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    parser.add_argument('--config', type=str, default='config',
-                        help='config file name')
+    parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    parser.add_argument('--config', type=str, default='config', help='config file name')
     args = parser.parse_args()
 
     Config(args.config)

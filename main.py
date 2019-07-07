@@ -6,6 +6,7 @@ import logging
 
 from hbconfig import Config
 import tensorflow as tf
+from tensorflow.python import debug as tf_debug
 
 import data_loader
 import hook
