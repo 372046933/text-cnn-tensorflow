@@ -1,22 +1,16 @@
 from __future__ import print_function
 
-
 from hbconfig import Config
 import tensorflow as tf
-from tensorflow.contrib import layers
 
 import text_cnn
-
-
 
 class Model:
 
     def __init__(self):
         pass
 
-    def model_fn(self, mode, features, labels, params):
-        self.dtype = tf.float32
-
+    def model_fn(self, features, labels, mode, params, config):
         self.mode = mode
         self.params = params
 
@@ -53,22 +47,18 @@ class Model:
             self._build_metric()
 
     def _build_loss(self, output):
-        self.loss = tf.losses.softmax_cross_entropy(
+        self.loss = tf.compat.v1.losses.softmax_cross_entropy(
                 self.targets,
                 output,
                 scope="loss")
 
     def _build_prediction(self, output):
-        tf.argmax(output[0], name='train/pred_0') # for print_verbose
-        self.predictions = tf.argmax(output, axis=1)
+        tf.math.argmax(output[0], name='train/pred_0') # for print_verbose
+        self.predictions = tf.math.argmax(output, axis=1)
 
     def _build_optimizer(self):
-        self.train_op = layers.optimize_loss(
-            self.loss, tf.train.get_global_step(),
-            optimizer='Adam',
-            learning_rate=Config.train.learning_rate,
-            summaries=['loss', 'learning_rate'],
-            name="train_op")
+        optimizer = tf.compat.v1.train.AdamOptimizer(learning_rate=Config.train.learning_rate)
+        self.train_op = optimizer.minimize(self.loss)
 
     def _build_metric(self):
         self.metrics = {

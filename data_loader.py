@@ -266,10 +266,8 @@ def load_data(X_fname, y_fname):
     t: tuple of ndarray
         (features, labels)
     '''
-    X_input_data = open(os.path.join(Config.data.base_path, Config.data.processed_path, X_fname),
-                        'r')
-    y_input_data = open(os.path.join(Config.data.base_path, Config.data.processed_path, y_fname),
-                        'r')
+    X_input_data = open(os.path.join(Config.data.base_path, Config.data.processed_path, X_fname))
+    y_input_data = open(os.path.join(Config.data.base_path, Config.data.processed_path, y_fname))
 
     X_data, y_data = [], []
     for X_line, y_line in zip(X_input_data.readlines(), y_input_data.readlines()):
@@ -360,6 +358,7 @@ def make_batch(data: Tuple[np.ndarray, np.ndarray], buffer_size=10000, batch_siz
                 dataset = dataset.batch(batch_size)
 
                 iterator = dataset.make_initializable_iterator()
+                iterator_initializer = iterator.initializer
                 next_X, next_y = iterator.get_next()
 
                 tf.identity(next_X[0], 'input_0')
@@ -368,7 +367,7 @@ def make_batch(data: Tuple[np.ndarray, np.ndarray], buffer_size=10000, batch_siz
                 # Set runhook to initialize iterator
                 iterator_initializer_hook.iterator_initializer_func = \
                     lambda sess: sess.run(
-                        iterator.initializer,
+                        iterator_initializer,
                         feed_dict={input_placeholder: X,
                                    output_placeholder: y})
 
@@ -379,6 +378,18 @@ def make_batch(data: Tuple[np.ndarray, np.ndarray], buffer_size=10000, batch_siz
         return train_inputs, iterator_initializer_hook
 
     return get_inputs()
+
+
+def input_fn_from_file(batch_size=32, mode='train'):
+    if mode == tf.estimator.ModeKeys.TRAIN:
+        train_X = tf.data.TextLineDataset('train_X_ids')
+        train_y = tf.data.TextLineDataset('train_y')
+        dataset = tf.data.Dataset.zip((train_X, train_y))
+    else:
+        test_X = tf.data.TextLineDataset('test_X_ids')
+        test_y = tf.data.TextLineDataset('test_y')
+        dataset = tf.data.Dataset.zip((test_X, test_y))
+    dataset = dataset.batch(batch_size)
 
 
 if __name__ == '__main__':
